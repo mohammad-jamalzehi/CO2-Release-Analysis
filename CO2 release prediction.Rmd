@@ -1,0 +1,803 @@
+---
+---
+title: "Regression Project"
+author: "Mohammad Jamalzehi & Kosar Ghazali"
+date: "`r Sys.Date()`"
+output: word_document
+always_allow_html: yes
+---
+
+# Introduction
+
+```{r message=FALSE, warning=FALSE}
+# loading useful libraries
+library(tidyverse)
+library(tibble)     # data frame printing
+library(dplyr)      # data manipulation
+library(knitr)      # creating tables
+library(kableExtra) # styling tables
+library(caret)      # fitting KNN
+library(rpart)      # fitting trees
+library(rpart.plot) # plotting trees
+library(ggplot2)    # plotting charts
+library(plotly)     # pie chart
+library(corrplot)   #correlation matrix
+library(gridExtra)  #arrange multi plots
+library(randomForest) #Random Forest 
+library(glmnet)      #lasso Regression
+library(gbm)         #Gradient Boosting Regression
+library(skimr)      #summarize the data
+```
+
+```{r message=FALSE, warning=FALSE}
+# Load data set
+library(readr)
+data = read_csv("D:/university/Semester 6/Applied Statistics Analysis/misc/Data/CO2.csv")
+attach(data)
+```
+
+# Data Description
+
+```{r}
+# Generate the summary of data
+
+# Skim the data
+summary <- skim(data)
+kable(summary, align = "c") %>% kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+-   we have 7385 vehicle's in total
+
+-   the mean and the median of CO2 is around 250
+
+-   **Fuel Consumption City** is higher then **Fuel Consumption Hwy** in all parameters
+
+```{r}
+# detect NA Data
+nan_count = sum(is.na(data))
+nan_count 
+```
+
+# Data visualization
+
+```{r}
+# Cylinders in vehicles
+ggplot(data) +
+  geom_histogram(aes(x = Cylinders), fill = "steelblue", color = "white", alpha = 0.6) +
+  labs(title = "Distribution of Cylinders in Vehicles",
+       x = "Cylinders",
+       y = "Count") +
+  theme_minimal()
+
+```
+
+```{r message=FALSE, warning=FALSE}
+
+ggplot() +
+  geom_histogram(aes(x = `Fuel Consumption City (L/100 km)`), bins = 20, fill = "orange", alpha = 0.5, binwidth = 1, density = TRUE, show.legend = TRUE) +
+  geom_histogram(aes(x = `Fuel Consumption Hwy (L/100 km)`), bins = 20, fill = "blue", alpha = 0.5, binwidth = 1, density = TRUE, show.legend = TRUE) +
+  labs(title = "Fuel Consumption", x = "Fuel Consumption", y = "Density") +
+  scale_fill_manual(values = c("orange", "blue"), labels = c("City", "Highway")) +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+```
+
+```{r}
+#Fuel Types used in Highways
+
+plot_1 = ggplot(data, aes(x = `Fuel Consumption Hwy (L/100 km)`, fill = `Fuel Type`)) +
+  geom_histogram(binwidth = 0.5, color = "black", alpha = 0.6) +
+  labs(title = "Fuel types used in Highways", x = "Fuel Consumption Hwy", y = "Count") +
+  theme_minimal()+
+  theme(legend.position = "none")
+plot_2 = ggplot(data, aes(x = `Fuel Consumption City (L/100 km)`, fill = `Fuel Type`)) +
+  geom_histogram(binwidth = 0.5, color = "black", alpha = 0.6) +
+  labs(title = "Fuel types used in City", x = "Fuel Consumption City", y = "Count") +
+  theme_minimal()
+grid.arrange(plot_1, plot_2, ncol = 2)
+```
+
+Fuel types Z and X are used dominantly both in highways and city which are "Premium gasoline" and "regular gasoline"
+
+```{r message=FALSE, warning=FALSE}
+# median and IQR for varouis typle of vehicles
+
+# Define the color palette
+my_palette <- colorRampPalette(c("orange",'yellow','limegreen', 'steelblue', "pink"))
+
+# Create the plot
+ggplot(data) +
+  geom_boxplot(aes(x = Make, y = `CO2 Emissions(g/km)`, fill = Make)) +
+  labs(title = "Median and IQR for Various Types of Vehicles",
+       x = "Make",
+       y = "CO2 Emissions (g/km)") +
+  scale_fill_manual(values = my_palette(length(unique(data$Make)))) +
+  theme_minimal() +
+    guides(fill = FALSE) + 
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+we could see that all models of Rolls-royce has emissions more than 350. Some models(outliers) in Mercedes-Benz and FORD are competing with the maximum emissions, however there is no solid evidence that the company that made the vehicle is necessarily correlated with the emission of CO2
+
+```{r}
+transmission_distr = table(data$Transmission)
+transmission_distr = data.frame(index = names(transmission_distr), Transmission = as.vector(transmission_distr))
+
+plot_ly(transmission_distr, values = ~Transmission, labels = ~index, type = "pie") %>%
+  layout(title = "Transmission Distribution")
+```
+
+```{r}
+ggplot(data, aes(x = `Fuel Consumption City (L/100 km)`, y = `CO2 Emissions(g/km)`)) +
+  geom_point(color = "steelblue", alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE, color = "darkred", linetype = "dashed") +
+  labs(title = "Fuel Consumption City vs CO2 Emissions",
+       x = "Fuel Consumption City (L/100 km)",
+       y = "CO2 Emissions (g/km)") +
+  theme_minimal()
+
+```
+
+```{r}
+
+ggplot(data, aes(x = `Fuel Consumption Hwy (L/100 km)`, y = `CO2 Emissions(g/km)`)) +
+  geom_point(color = "steelblue", alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE, color = "darkred", linetype = "dashed") +
+  labs(title = "Fuel Consumption Hwy vs CO2 Emissions",
+       x = "Fuel Consumption Hwy (L/100 km)",
+       y = "CO2 Emissions (g/km)") +
+  theme_minimal()
+
+```
+
+```{r}
+ggplot(data, aes(x = `Fuel Consumption Comb (mpg)`, y = `CO2 Emissions(g/km)`)) +
+  geom_point(color = "steelblue", alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE, color = "darkred", linetype = "dashed") +
+  labs(title = "Fuel Consumption Comb (mpg)vs CO2 Emissions",
+       x = "Fuel Consumption Comb (mpg)",
+       y = "CO2 Emissions (g/km)") +
+  theme_minimal()
+```
+
+there are two different distributions in these plots. a possible reason for that is the type of fuel
+
+that has been consumed
+
+```{r}
+# Create the plot
+ggplot(data) +
+  geom_boxplot(aes(x = `Fuel Type`, y = `Fuel Consumption Comb (mpg)`, fill = `Fuel Type`)) +
+  labs(title = "Median and IQR for Various Types of Fuels",
+       x = 'Fuel Type',
+       y = "CO2 Emissions (g/km)") +
+  theme_minimal() +
+    guides(fill = FALSE) + 
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        axis.title = element_text(size = 12))
+        
+```
+
+we can see that Fuel Type has a strong relationship with the Fuel Consumption.
+
+E = Ethanol (E85) is making less CO2 then the other fuels
+
+so, its important that we include fuel type in regression models.
+
+```{r}
+
+ggplot(data, aes(x = `Vehicle Class`, y = `Fuel Consumption Comb (L/100 km)`),fill = `Vehicle Class`) +
+  geom_boxplot() +  
+  labs(title = "Median and IQR for Various Types of Vehicle Classes",
+       x = "Vehicle Class",
+       y = "Fuel Consumption") +
+  theme_minimal() +
+  guides(fill = FALSE) +
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+as you can see in this chart, small cars consume less fuel than bigger vehicles. so vehicle class does contribute to the Co2 emission
+
+```{r}
+# Create the plot
+ggplot(data) +
+  geom_boxplot(aes(x = Transmission, y = `Fuel Consumption Comb (L/100 km)`, fill = Transmission)) +
+  labs(title = "Median and IQR for Various Types of Transmission",
+       x = "Transmission",
+       y = "Fuel Consumption Comb") +
+  theme_minimal() +
+    guides(fill = FALSE) + 
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        axis.title = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+#numeric correlation
+numeric_data =  subset(data, select = -c(Make,`Vehicle Class`,Model,Transmission, `Fuel Type`))
+
+col = colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+
+#correalation matrix
+cor_matrix = cor(numeric_data)
+# Display the correlation matrix using corrplot with customized options
+corrplot(cor_matrix,
+         method = "circle",
+         type = "upper",
+         order = "hclust",
+         tl.cex = 0.8,
+         tl.col = "black",
+         tl.srt = 45,
+         col = col(200),
+         addCoef.col = "gray",
+         number.digits = 2,
+         mar = c(0, 0, 1, 0),
+         diag = FALSE,
+         cl.pos = "n",
+         cl.align = "b",
+         tl.offset = 0.5,
+         addrect = 2,
+         rect.col = "lightgray",
+         rect.lwd = 0.5)
+
+
+```
+
+# Pre Processing
+
+as you can see there are only one vehicles in the data set that uses the N type of fuel we surely can omit this vehicle since it has nearly no correlation with the response variable
+
+```{r message=FALSE, warning=FALSE}
+data = data[data$`Fuel Type` != "N", ]
+attach(data)
+```
+
+```{r}
+#augment the data with a variable called "Car Size"
+data$car_size = log(`Engine Size(L)` * Cylinders * `Fuel Consumption Comb (L/100 km)`)
+```
+
+here we see the relation between car size and the CO2 emission
+
+```{r}
+
+ggplot(data, aes(x = car_size, y = `Fuel Consumption Comb (L/100 km)`)) +
+  geom_point(color = "steelblue", size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "darkred",linetype ='dashed') +
+  labs(x = "Car Size", y = "Fuel Consumption Comb (L/100 km)") +
+  theme_minimal()
+
+```
+
+```{r}
+ggplot(data, aes(x = car_size, y = `CO2 Emissions(g/km)`)) +
+  geom_point(color = "steelblue", size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "darkred",linetype ='dashed') +
+  labs(x = "Car Size", y = "CO2 Emissions(g/km)") +
+  theme_minimal()
+```
+
+now we know that car size has a high correlation we the Fuel Consumption and CO2 now we want to see how Fuel Type and car size are correlated.
+
+```{r}
+
+ggplot(data) +
+  geom_boxplot(aes(x = `Fuel Type`, y = car_size, fill = `Fuel Type`)) +
+  labs(title = "Median and IQR for Various Size of Vehicles",
+       x = 'Fuel Type',
+       y = "Size of vehicles") +
+  theme_minimal() +
+    guides(fill = FALSE) + 
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        axis.title = element_text(size = 12))
+```
+
+here we can create a new correlation matrix including car-size variable
+
+```{r}
+numeric_data_2 =  subset(data, select = -c(Make,`Vehicle Class`,Model,Transmission, `Fuel Type`))
+
+col = colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+
+#correalation matrix
+cor_matrix = cor(numeric_data_2)
+# Display the correlation matrix using corrplot with customized options
+corrplot(cor_matrix,
+         method = "circle",
+         type = "upper",
+         order = "hclust",
+         tl.cex = 0.8,
+         tl.col = "black",
+         tl.srt = 45,
+         col = col(200),
+         addCoef.col = "gray",
+         number.digits = 2,
+         mar = c(0, 0, 1, 0),
+         diag = FALSE,
+         cl.pos = "n",
+         cl.align = "b",
+         tl.offset = 0.5,
+         addrect = 2,
+         rect.col = "lightgray",
+         rect.lwd = 0.5)
+
+```
+
+## Converting variables to numeric.
+
+```{r}
+numeric_data_3 <- data
+numeric_data_4 <- 'Fuel Type'
+prefix_for_data <- 'F'
+
+for (i in 1:length(numeric_data_4)) {
+  per <- prefix_for_data[i]
+  col <- numeric_data_4[i]
+  
+  num <- model.matrix(~ . - 1, data = numeric_data_3[col])
+  colnames(num) <- paste0(per, "_", colnames(num))
+  
+  numeric_data_3 <- cbind(numeric_data_3, num)
+}
+
+labels <- numeric_data_3$`CO2 Emissions(g/km)`
+df <-  subset(numeric_data_3, select = -c(Make,`Vehicle Class`,Model,Transmission, `Fuel Type`))
+```
+
+as you can see car size has the most correlation with the response variable.
+
+## Renaming columns
+
+```{r}
+colnames(df)[1] = "engin_size"
+colnames(df)[3] = "Fuel_cons_city"
+colnames(df)[4] = "Fuel_cons_hwy"
+colnames(df)[5] = "Fuel_cons_comb"
+colnames(df)[6] = "Fuel_cons_comb_mpg"
+colnames(df)[7] = "CO2"
+colnames(df)[9] = "FUEL_D"
+colnames(df)[10] = "FUEL_E"
+colnames(df)[11] = "FUEL_X"
+colnames(df)[12] = "FUEL_Z"
+```
+
+## Normalization
+
+```{r}
+# Normalize each numeric variable in the numeric data frame
+df_std = as.data.frame(scale(df))
+
+```
+
+## Sorting the Data
+
+```{r}
+#shifting the response variable to the end of dataframe
+response <- "CO2"
+column_index <- which(names(df) == response)
+
+# Rearrange the columns
+df <- df[, c(setdiff(1:ncol(df), column_index), column_index)]
+
+# same way for df_std
+column_index_std <- which(names(df_std) == response)
+
+# Rearrange the columns
+df_std <- df_std[, c(setdiff(1:ncol(df_std), column_index_std), column_index_std)]
+```
+
+## Data Splitting
+
+```{r}
+# train-test split
+set.seed(12)
+data_idx_train = sample(nrow(df),size = 0.8 * nrow(df))
+train_set = df[data_idx_train, ]
+test_set = df[-data_idx_train, ]
+# train-test split (STD)
+set.seed(12)
+data_idx_train_std = sample(nrow(df_std),size = 0.8 * nrow(df_std))
+train_set_std = df_std[data_idx_train_std, ]
+test_set_std = df_std[-data_idx_train_std, ]
+```
+
+```{r message=FALSE, warning=FALSE}
+# estimation-validation split
+data_idx_est = sample(nrow(train_set),size = 0.8 * nrow(train_set))
+estimation = train_set[data_idx_est,]
+validation = train_set[-data_idx_est,]
+
+# estimation-validation split (STD)
+data_idx_est_std = sample(nrow(train_set_std),size = 0.8 * nrow(train_set_std))
+estimation_std = train_set_std[data_idx_est_std,]
+validation_std = train_set_std[-data_idx_est_std,]
+
+attach(estimation)
+```
+
+## Normalization
+
+# Regression Analysis
+
+## 1- Linear Regression
+
+```{r}
+# R-squared and RMSE Calculator Functions
+
+calc_RMSE = function(actual, predicted){
+  sqrt(mean((actual-predicted)^2))
+}
+
+calc_r2 = function(actual,predicted){
+  SSE = sum((actual - predicted)^2)
+  SST = sum((actual - mean(actual))^2)
+  1 - SSE / SST
+}
+
+```
+
+### Estimation
+
+```{r}
+linear_models = list(
+  model_1 = lm(CO2 ~ car_size ,estimation),
+  model_2 = lm(CO2 ~ .,estimation),
+  model_3 = step(lm(CO2 ~ . ^ 2,estimation),trace = F)
+  
+)
+```
+
+### Validation
+
+```{r message=FALSE, warning=FALSE}
+# validation prediction
+linear_pred  = lapply(linear_models, predict, validation)
+
+rmse_values_linear <- sapply(linear_pred, calc_RMSE, actual = validation$CO2)
+r2_values_linear <- sapply(linear_pred, calc_r2, actual = validation$CO2 )
+
+table_data_linear <- tibble(
+  Model = names(linear_pred),
+  RMSE = rmse_values_linear,
+  R2 = r2_values_linear
+)
+
+print(table_data_linear)
+```
+
+```{r}
+best_linear = step(lm(CO2 ~ . ^ 2,estimation),trace = F)
+best_linear_r2 = 0.998
+best_linear_RMSE = 2.753
+```
+
+## 2- KNN regression
+
+### Estimation
+
+```{r message=FALSE, warning=FALSE}
+attach(estimation_std)
+KNN_models = list()
+for (i in 1:25) {
+  KNN_models[[i]] = knnreg(CO2 ~ ., data = estimation_std, k=i)
+}
+
+
+```
+
+### Validation
+
+```{r}
+knn_pred = lapply(KNN_models,predict, validation_std)
+rmse_values_knn <- sapply(knn_pred, calc_RMSE,validation_std$CO2)
+r2_values_knn <- sapply(knn_pred, calc_r2, validation_std$CO2)
+
+table_data_knn <- tibble(
+  k_value = 1:25,
+  Model = names(knn_pred),
+  RMSE = rmse_values_knn,
+  R2 = r2_values_knn
+)
+table_data_knn
+```
+
+```{r}
+# Line plot for RMSE values
+ggplot(table_data_knn, aes(x = k_value, y = R2)) +
+  geom_line(color = "darkred",linewidth = 1) +
+  labs(title = "R2 Values for KNN Models",
+       x = "K Value",
+       y = "R2") +
+  theme_minimal()
+```
+
+```{r}
+best_knn = knnreg(CO2 ~ ., data = estimation_std, k=1)
+best_knn_r2 = 0.9971
+best_knn_RMSE = 0.0539683
+```
+
+## 3- Regression Tree
+
+### Estimation
+
+```{r message=FALSE, warning=FALSE}
+attach(estimation)
+reg_tree_all = rpart(CO2 ~ .,estimation)
+rpart.plot(reg_tree_all)
+tree_models = list(
+  tree_1 = rpart(CO2~.,data = estimation,cp = 0.005,minsplit = 5),
+  tree_2 = rpart(CO2~.,data = estimation,cp = 0.01,minsplit = 5),
+  tree_3 = rpart(CO2~.,data = estimation,cp = 0.015,minsplit = 5),
+  tree_4 = rpart(CO2~.,data = estimation,cp = 0.02,minsplit = 5),
+  tree_5= rpart(CO2~.,data = estimation,cp = 0.018,minsplit = 20)
+)
+```
+
+```{r}
+#variable importance
+importances <- reg_tree_all$variable.importance
+
+# Create a data frame with variable names and importances
+df_VI <- data.frame(Variable = names(importances), Importance = importances)
+
+# Sort the data frame by importance in descending order
+df_VI <- df_VI[order(df_VI$Importance, decreasing = TRUE), ]
+
+# Use kable function from knitr to create a table
+as_tibble(df_VI)
+
+```
+
+### Validation
+
+```{r message=FALSE, warning=FALSE}
+attach(validation)
+tree_pred = lapply(tree_models, predict, validation)
+rmse_values_tree <- sapply(tree_pred, calc_RMSE, validation$CO2)
+r2_values_tree <- sapply(tree_pred, calc_r2, validation$CO2)
+
+table_data_tree <- tibble(
+  Model = names(tree_pred),
+  RMSE = rmse_values_tree,
+  R2 = r2_values_tree
+)
+table_data_tree
+
+```
+
+```{r}
+best_tree = rpart(CO2~.,data = estimation,cp = 0.005,minsplit = 5)
+best_tree_r2 = 0.9458
+best_tree_rmse = 13.95340
+```
+
+## 4- Random Forest Regression
+
+### Estimation
+
+```{r message=FALSE, warning=FALSE}
+attach(estimation)
+RF_models = list()
+set.seed(12)
+for (i in 1:100) {
+  RF_models[[i]] = randomForest(CO2 ~ ., data = estimation, 
+                         ntree = i, mtry = sqrt(ncol(estimation)-1))
+}
+```
+
+### Validation
+
+```{r message=FALSE, warning=FALSE}
+attach(validation)
+RF_pred <- predict(RF_models, newdata = validation)
+
+rmse_values_RF <- sapply(RF_pred, calc_RMSE,validation$CO2)
+r2_values_RF <- sapply(RF_pred, calc_r2, validation$CO2)
+
+table_data_RF <- tibble(
+  k_value = 1:100,
+  Model = names(RF_pred),
+  RMSE = rmse_values_RF,
+  R2 = r2_values_RF
+)
+which.max(table_data_RF$R2)
+table_data_RF
+
+```
+
+```{r}
+best_rf = randomForest(CO2 ~ ., data = estimation,ntree = 16, mtry = sqrt(ncol(estimation)-1))
+best_rf_r2 = 0.9966076	
+best_rf_rmse = 3.273711
+```
+
+## 5- Lasso Regression
+
+### Estimation
+
+```{r}
+# Separate predictors (X) and response variable (Y)
+X <- as.matrix(estimation[, -12])
+Y <- as.matrix(estimation[, 12])
+#fitting the lasso model
+lasso_model <- glmnet(X,Y, alpha = 1) # aplha = 1 is for lasso regression
+
+```
+
+### Cross Validation
+
+```{r}
+# Perform cross-validation to select optimal lambda (penalty parameter)
+cross_validation <- cv.glmnet(X, Y, alpha = 1)
+plot(cross_validation)
+```
+
+```{r}
+# Extract the optimal lambda based on minimum mean cross-validated error
+optimal_lambda <- cross_validation$lambda.min
+cat("Optimal Lambda:", optimal_lambda)
+
+```
+
+```{r}
+# optimal lasso model
+optimal_lasso <- glmnet(X,Y,aplha = 1,lambda = optimal_lambda)
+```
+
+### Validation
+
+```{r}
+# lasso Prediction 
+X_validation = as.matrix(validation[,-12])
+lasso_pred = predict(optimal_lasso, newx = X_validation)
+rmse_values_lasso = calc_RMSE(validation$CO2,lasso_pred)
+r2_values_lasso = calc_r2(validation$CO2,lasso_pred)
+cat("R-squared value for Lasso regression:", r2_values_lasso)
+cat("\nRMSE value for Lasso regression:", rmse_values_lasso)
+```
+
+## 6- Ridge Regression
+
+### Estimation
+
+```{r}
+#fitting the Ridge Model
+ridge_model <- glmnet(X,Y,alpha = 0)
+```
+
+### Cross validation
+
+```{r}
+# Perform cross-validation to select optimal lambda (penalty parameter)
+cross_validation_ridge <- cv.glmnet(X, Y, alpha = 0)
+plot(cross_validation_ridge)
+```
+
+```{r}
+# Extract the optimal lambda based on minimum mean cross-validated error
+optimal_lambda_ridge <- cross_validation_ridge$lambda.min
+cat("Optimal Lambda:", optimal_lambda_ridge)
+```
+
+```{r}
+# optimal Ridge model
+optimal_ridge <- glmnet(X,Y,aplha = 0,lambda = optimal_lambda_ridge)
+```
+
+### Validation
+
+```{r}
+# Ridge Prediction 
+X_validation_ridge = as.matrix(validation[,-12])
+ridge_pred = predict(optimal_ridge, newx = X_validation)
+rmse_values_ridge = calc_RMSE(validation$CO2,ridge_pred)
+r2_values_ridge = calc_r2(validation$CO2,ridge_pred)
+cat("R-squared value for Ridge regression:", r2_values_ridge)
+cat("\nRMSE value for Ridge regression:", rmse_values_ridge)
+```
+
+## 7- Elastic Net Regression
+
+### Estimation
+
+```{r}
+# Perform Elastic Net regression
+enet_model <- glmnet(X, Y, alpha = 0.5)  # alpha = 0.5 for balanced Elastic Net
+
+```
+
+### Cross Validation
+
+```{r}
+# Perform cross-validation to select optimal lambda (penalty parameter)
+cross_validation_enet =  cv.glmnet(X, Y, alpha = 0.5)
+plot(cross_validation_enet)
+```
+
+```{r}
+# Extract the optimal lambda based on minimum mean cross-validated error
+optimal_lambda_enet <- cross_validation_enet$lambda.min
+cat("Optimal Lambda:", optimal_lambda_enet)
+```
+
+```{r}
+# optimal Ridge model
+optimal_enet <- glmnet(X,Y,aplha = 0.5,lambda = optimal_lambda_enet)
+```
+
+### Validation
+
+```{r}
+# Ridge Prediction 
+X_validation_enet = as.matrix(validation[,-12])
+enet_pred = predict(optimal_enet, newx = X_validation)
+rmse_values_enet = calc_RMSE(validation$CO2,enet_pred)
+r2_values_enet = calc_r2(validation$CO2,enet_pred)
+cat("R-squared value for Ridge regression:", r2_values_enet)
+cat("\nRMSE value for Ridge regression:", rmse_values_enet)
+```
+
+## 8 - Gradient Boosting Regression
+
+### Estimation
+
+```{r}
+gbm_model <- gbm(CO2 ~ .,data = estimation,n.trees = 100,distribution = 'gaussian', interaction.depth = 4,shrinkage = 0.01)
+```
+
+### Validation
+
+```{r}
+#prediction and validation
+gbm_pred <- predict(gbm_model, newdata = validation, n.trees = 100)
+rmse_values_gbm = calc_RMSE(validation$CO2,gbm_pred)
+r2_values_gbm = calc_r2(validation$CO2,gbm_pred)
+cat("R-squared value for GBM regression:", r2_values_gbm)
+cat("\nRMSE value for GBM regression:", rmse_values_gbm)
+```
+
+## Best Model
+
+```{r}
+# Load required librarieslibrary(knitr)
+library(kableExtra)
+
+# Create a data frame with the models, R-squared, and RMSE metrics
+models <- c("Linear", "KNN", "Tree", "RandomForest", "Lasso", "Ridge", "Elastic Net", "Gradient Boosting")
+r_squared <- c(best_linear_r2, best_knn_r2,best_tree_r2, best_rf_r2, r2_values_lasso, r2_values_ridge, r2_values_enet, r2_values_gbm)
+rmse <- c(best_linear_RMSE, best_knn_RMSE,best_tree_rmse, best_rf_rmse, rmse_values_lasso, rmse_values_ridge, rmse_values_enet, rmse_values_gbm)
+
+all_models <- tibble(
+  Model = models,
+  RMSE = rmse,
+  R2 = r_squared
+)
+# Sort the models based on R2 in descending order
+sorted_models <- all_models[order(all_models$R2, decreasing = TRUE), ]
+
+# Print the sorted models
+Final <- kable(sorted_models, "html", align = "c") %>% kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE) %>%
+  add_header_above(c("Regression Models" = 3)) %>%
+  add_footnote("Note: R-squared and RMSE are evaluation metrics for the regression models.")
+Final
+```
+
+```{r}
+best_model = step(lm(CO2 ~ . ^ 2,train_set),trace = F)
+best_pred  = lapply(best_model, predict, test_set)
+
+rmse_best <- sapply(best_pred, calc_RMSE, actual = test_set$CO2)
+r2_best <- sapply(best_pred, calc_r2, actual = test_set$CO2 )
+
+cat("R-squared value for best model (linear regression):", r2_best)
+cat("\nRMSE value for best model (linear regression):", rmse_best)
+```

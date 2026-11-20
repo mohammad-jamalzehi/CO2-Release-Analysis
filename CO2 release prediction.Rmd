@@ -1,5 +1,4 @@
 ---
----
 title: "Regression Project"
 author: "Mohammad Jamalzehi & Kosar Ghazali"
 date: "`r Sys.Date()`"
@@ -32,7 +31,7 @@ library(skimr)      #summarize the data
 ```{r message=FALSE, warning=FALSE}
 # Load data set
 library(readr)
-data = read_csv("D:/university/Semester 6/Applied Statistics Analysis/misc/Data/CO2.csv")
+data = read_csv("CO2 Emissions_Canada.csv")
 attach(data)
 ```
 
@@ -399,6 +398,7 @@ df_std <- df_std[, c(setdiff(1:ncol(df_std), column_index_std), column_index_std
 ```{r}
 # train-test split
 set.seed(12)
+set.seed(42) # Reproducible train/validation sampling
 data_idx_train = sample(nrow(df),size = 0.8 * nrow(df))
 train_set = df[data_idx_train, ]
 test_set = df[-data_idx_train, ]
